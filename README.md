@@ -12,7 +12,15 @@ Helps manage large Discord servers by providing transparency into message patter
 ### What is the advantage?
 Unlike human moderators who can only monitor specific servers, Satori operates across multiple Discord communities simultaneously. This cross-server analysis means users are evaluated based on their behavior everywhere, that means preventing scenarios where someone maintains a positive reputation in one server while exhibiting toxic behavior in others.
 
-# INVITE SATORI
+## Run it
+To make sure that the messages are scored correctly, run
+`uvicorn message_sentiment:app --reload --port 3001` to start the sentiment analysis.
+<br>and `npm run dev` to run the discord bot.
+**MAKE SURE** to have a `.env` with `TOKEN=` and your discord bot token.
+
+# INVITE SATORI 💟
 Want to test it?
 
 https://discord.com/oauth2/authorize?client_id=1402046668270080110&permissions=8&integration_type=0&scope=bot
+
+Made with <3 by STEIN.
