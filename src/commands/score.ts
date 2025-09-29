@@ -119,6 +119,7 @@ export const score: command = {
 							indicator,
 							"",
 							`_Based on **${result.length}** messages_`,
+							`_5 is BEST_`,
 						].join("\n"),
 						color:
 							averageScore >= 4.5

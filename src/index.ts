@@ -65,11 +65,13 @@ async function processQueue() {
 				return maxLen === 0 ? 1 : 1 - distance / maxLen;
 			}
 
-			const threshold = 0.5 + Math.random() * 0.2; // random between 0.5 and 0.7 in %
-			const similarMessages = contentResults.filter(
-				(row: any) =>
-					similarity(item.cleanContent, row.cleanContent) >= threshold
-			);
+			const threshold = 0.5 + Math.random() * 0.2; // random threshold between 0.5 and 0.7 in %
+			const similarMessages = contentResults
+				.slice(-10)
+				.filter(
+					(row: any) =>
+						similarity(item.cleanContent, row.cleanContent) >= threshold
+				);
 
 			const isSimilar = similarMessages.length > 0;
 
@@ -98,8 +100,8 @@ async function processQueue() {
 				const now = Date.now();
 				const diffMs = now - latestTimestamp;
 				const diffMinutes = diffMs / (1000 * 60);
-				const minMinutes = 30;
-				const maxMinutes = 180;
+				const minMinutes = 0; // CHANGE IF NEEDED
+				const maxMinutes = 0; // CHANGE IF NEEDED
 				const randomMinutes =
 					minMinutes + Math.random() * (maxMinutes - minMinutes);
 				if (diffMinutes < randomMinutes) {
@@ -127,6 +129,148 @@ async function processQueue() {
 				[score, item.id]
 			);
 			console.log(`[+] Score ${score} added to message ${item.id}`);
+
+			// CHECKING USER SCORE AND GUILD SETTINGS
+			const result = await discord_message_db.query(
+				"SELECT score FROM messages WHERE authorId = ?",
+				[author]
+			);
+
+			const validScores = result.filter(
+				(row: any) => row.score !== null && row.score !== undefined
+			);
+			if (!validScores.length) {
+				return;
+			}
+			if (!result.length) {
+				return;
+			}
+
+			const totalScore = validScores.reduce(
+				(sum: number, row: any) => sum + row.score,
+				0
+			);
+			const averageScore = totalScore / validScores.length;
+			const guild_settings_result = await discord_message_db.query(
+				"SELECT * FROM guilds WHERE guildId = ?",
+				[item.guildId]
+			);
+
+			let guildSettings = null;
+			if (guild_settings_result.length > 0) {
+				guildSettings = {
+					id: guild_settings_result[0].id,
+					guildId: guild_settings_result[0].guildId,
+					guildName: guild_settings_result[0].guildName,
+					description: guild_settings_result[0].description || "",
+					ownerId: guild_settings_result[0].ownerId,
+					preferredLocale: guild_settings_result[0].preferredLocale,
+					banMinScore: guild_settings_result[0].banMinScore,
+					kickMinScore: guild_settings_result[0].kickMinScore,
+					warnMessage: guild_settings_result[0].warnMessage,
+				};
+			}
+			console.log(
+				`[i] User ${author} average score: ${averageScore.toFixed(
+					2
+				)} on guild: ` + item.guildId
+			);
+			if (guildSettings) {
+				console.log(
+					`[i] Guild settings for ${guildSettings.guildName}:` +
+						`\n    - Ban threshold: ${
+							guildSettings.banMinScore !== null
+								? guildSettings.banMinScore.toFixed(2)
+								: "Not set"
+						}` +
+						`\n    - Kick threshold: ${
+							guildSettings.kickMinScore !== null
+								? guildSettings.kickMinScore.toFixed(2)
+								: "Not set"
+						}` +
+						`\n    - Warning message: ${
+							guildSettings.warnMessage || "Not set"
+						}`
+				);
+			}
+
+			if (guildSettings) {
+				if (averageScore < guildSettings.banMinScore) {
+					console.log(
+						`[!] USER ${author} SHOULD BE BANNED FROM ${
+							guildSettings.guildName
+						} - Average score: ${averageScore.toFixed(2)}`
+					);
+					try {
+						const guild = client.guilds.cache.get(item.guildId);
+						if (guild) {
+							const member = await guild.members.fetch(author);
+							if (member) {
+								await member.ban({
+									reason: `SATORI | Automatic ban: Average sentiment score ${averageScore.toFixed(
+										2
+									)} below threshold ${guildSettings.banMinScore.toFixed(
+										2
+									)}`,
+								});
+								console.log(
+									`[+] User ${author} has been banned from ${guildSettings.guildName}`
+								);
+							} else {
+								console.log(
+									`[-] Could not find user ${author} in guild ${guildSettings.guildName}`
+								);
+							}
+						} else {
+							console.log(
+								`[-] Could not find guild ${item.guildId}`
+							);
+						}
+					} catch (error) {
+						console.error(
+							`[-] Failed to ban user ${author}:`,
+							error
+						);
+					}
+				} else if (averageScore < guildSettings.kickMinScore) {
+					console.log(
+						`[!] USER ${author} SHOULD BE KICKED FROM ${
+							guildSettings.guildName
+						} - Average score: ${averageScore.toFixed(2)}`
+					);
+					try {
+						const guild = client.guilds.cache.get(item.guildId);
+						if (guild) {
+							const member = await guild.members.fetch(author);
+							if (member) {
+								await member.kick(
+									`SATORI | Automatic kick: Average sentiment score ${averageScore.toFixed(
+										2
+									)} below threshold ${guildSettings.kickMinScore.toFixed(
+										2
+									)}`
+								);
+								console.log(
+									`[+] User ${author} has been kicked from ${guildSettings.guildName}`
+								);
+							} else {
+								console.log(
+									`[-] Could not find user ${author} in guild ${guildSettings.guildName}`
+								);
+							}
+						} else {
+							console.log(
+								`[-] Could not find guild ${item.guildId}`
+							);
+						}
+					} catch (error) {
+						console.error(
+							`[-] Failed to kick user ${author}:`,
+							error
+						);
+					}
+				}
+			}
 		} catch (err) {
 			console.error("[-] Sentiment fetch failed:", err);
 		}
@@ -137,10 +281,48 @@ processQueue();
 
 client.on("messageCreate", async (message) => {
 	if (message.author.bot) return;
-	// blacklisted messages
-	if (message.cleanContent.trim() === "/score") {
+	// blacklisted messages, since we dont wanna see the own command
+	if (
+		message.cleanContent.trim().startsWith("/score") ||
+		message.cleanContent.trim().startsWith("/settings")
+	) {
 		return;
 	}
+
+	if (message.guild) {
+		try {
+			const guildExists = await discord_message_db.query(
+				"SELECT id FROM guilds WHERE id = ?",
+				[message.guild.id]
+			);
+
+			if (guildExists.length === 0) {
+				await discord_message_db.run(
+					`INSERT INTO guilds (
+						id, guildId, guildName, description, ownerId, preferredLocale, 
+						banMinScore, kickMinScore, warnMessage
+					) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
+					[
+						message.guild.id,
+						message.guild.id,
+						message.guild.name,
+						message.guild.description || "",
+						message.guild.ownerId,
+						message.guild.preferredLocale,
+					]
+				);
+				console.log(
+					`[+] Guild ${message.guild.name} (${message.guild.id}) added to database`
+				);
+			}
+		} catch (error) {
+			console.error(
+				`[-] Failed to check/add guild ${message.guild.id}:`,
+				error
+			);
+		}
+	}
+
 	const messageData = {
 		channelId: message.channelId,
 		guildId: message.guildId ?? "",
@@ -205,10 +387,18 @@ client.on("messageCreate", async (message) => {
 			]
 		);
 		console.log(`[+] Message ${message.id} inserted successfully`);
+		if (message.member?.permissions.has("Administrator")) {
+			console.log(
+				`[i] Skipping message ${message.id} from administrator ${message.author.tag}`
+			);
+			return;
+		}
+
 		messageQueue.push({
 			id: message.id,
 			author: message.author.id,
 			cleanContent: message.cleanContent,
+			guildId: message.guildId,
 		});
 	} catch (error) {
 		console.error(`[-] Failed to insert message ${message.id}:`, error);
@@ -228,9 +418,9 @@ client.on("messageCreate", async (message) => {
 			.run(
 				`
 			CREATE TABLE IF NOT EXISTS messages (
+				id TEXT PRIMARY KEY,
 				channelId TEXT,
 				guildId TEXT,
-				id TEXT PRIMARY KEY,
 				createdTimestamp TEXT,
 				type INTEGER,
 				content TEXT,
@@ -253,6 +443,25 @@ client.on("messageCreate", async (message) => {
 			)
 			.then(() => {
 				console.log("[+] Created database");
+			});
+		await discord_message_db
+			.run(
+				`
+			CREATE TABLE IF NOT EXISTS guilds (
+				id TEXT PRIMARY KEY,
+				guildId TEXT,
+				guildName TEXT,
+				description TEXT,
+				ownerId TEXT,
+				preferredLocale TEXT,
+				banMinScore REAL,
+				kickMinScore REAL,
+				warnMessage TEXT,
+			)
+		`
+			)
+			.then(() => {
+				console.log("[+] Created guilds table");
 			});
 
 		console.log(commands);

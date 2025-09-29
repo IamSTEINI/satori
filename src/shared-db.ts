@@ -6,7 +6,7 @@ class SharedDatabase {
 
 	static async getInstance(): Promise<Database> {
 		if (!SharedDatabase.instance) {
-			SharedDatabase.instance = new Database("./discord_messages.duckdb");
+			SharedDatabase.instance = new Database("./database.duckdb");
 			await SharedDatabase.instance.connect();
 			SharedDatabase.isConnected = true;
 			console.log("[+] Shared database connection established");

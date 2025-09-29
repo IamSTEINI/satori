@@ -20,7 +20,7 @@ async def sentiment(request: Request):
     try:
         data = await request.json()
     except Exception:
-        return {"error": "Invalid or missing JSON in request body."}
+        return {"error": "Invalid or missing JSON in request body"}
     content = data.get("content", "")
     if not content:
         return {"error": "Missing 'content' field in JSON."}
