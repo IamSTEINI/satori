@@ -1,12 +1,10 @@
 import { command } from "./types";
 
 const commands: command[] = []
-const scoreCommandModule = require("./commands/score");
-const settingsCommandModule = require("./commands/settings");
-const scoreCommand: command = scoreCommandModule["score"];
-const settingsCommand: command = settingsCommandModule["settings"];
+import { score } from "./commands/score"
+import { settings }  from "./commands/settings"
 
-commands.push(scoreCommand)
-commands.push(settingsCommand)
+commands.push(score)
+commands.push(settings)
 
 export { commands }
